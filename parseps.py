@@ -111,7 +111,7 @@ def prepare_report(result):
         f"Всего физической памяти используется: {(mem / KB):.1f} mb")
     report.append(f"Всего CPU используется: {cpu:.1f} %")
     report.append(
-        f"Больше всего памяти использует {max_mem_consumer.cmd} [pid{max_mem_consumer.pid}]: {max_mem_consumer.mem / KB:.1f} mb")
+        f"Больше всего памяти использует {max_mem_consumer.cmd} [pid {max_mem_consumer.pid}]: {max_mem_consumer.mem / KB:.1f} mb")
     report.append(
         f"Больше всего CPU использует {max_cpu_consumer.cmd} [pid {max_cpu_consumer.pid}]: {max_cpu_consumer.cpu} %")
 
