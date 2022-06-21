@@ -8,7 +8,6 @@ import pandas as pd
 
 # Формат записи в файле лога (combined):
 # %h %l %u %t "%r" %>s %b "%{Referer}i" "%{User-Agent}i" %D
-
 # %h - имя удаленного хоста
 # %l - длинное имя удаленного хоста
 # %u - имя аутентифицированного пользователя
@@ -27,13 +26,15 @@ parser = ArgumentParser()
 group = parser.add_mutually_exclusive_group()
 group.add_argument('--file', nargs='?', const='access.log', default=None)
 group.add_argument('--dir', nargs='?', const='./', default=None)
-parser.add_argument('--to-file', nargs='?', const='access_stats.json', default=None)
+parser.add_argument('--to-file', nargs='?',
+                    const='access_stats.json', default=None)
 parser.add_argument('--pattern', default='access*.log*')
 args = parser.parse_args()
 
 
 def get_files():
     """Parse arguments"""
+
     file = args.file
     dir = args.dir
     pat = args.pattern
@@ -50,6 +51,7 @@ def get_files():
 
 def load_data(files):
     """Load data from given files"""
+
     try:
         df = pd.concat((pd.read_csv(f,
                                     delim_whitespace=True,
@@ -70,9 +72,11 @@ def load_data(files):
 
 
 def prepare_report(df: pd.DataFrame):
+    '''Prepare report for console output'''
+
     rep = {"methods": None,
            "top_hosts": None,
-           "top_long_requests": None
+           "top_requests": None
            }
 
     reqs = df['method'].value_counts(dropna=True, ascending=False).to_dict()
@@ -84,15 +88,27 @@ def prepare_report(df: pd.DataFrame):
 
     long_reqs = df.sort_values(by=['mils'], ascending=False).drop(
         columns=['user', 'status', 'bytes', 'referer', 'ua']).head(3)
-    rep['top_long_requests'] = long_reqs.astype(object).replace(
+    rep['top_requests'] = long_reqs.astype(object).replace(
         np.nan, 'Null').to_dict(orient='records')
 
     return rep
 
 
 def out_to_console(rep):
-    print(f"Access log(s) analysis summary:")
-    print(json.dumps(rep, indent=4))
+    print(f"Access log(s) analysis summary:\n")
+    print("HTTP methods statistics:")
+    for k, v in rep['methods'].items():
+        print(f'\t{k}: {v}')
+    print()
+    print("Top 3 hosts by requests:")
+    for k, v in rep['top_hosts'].items():
+        print(f'\t{k}: {v}')
+    print()
+    print("Top 3 longest requests:")
+    for r in rep['top_requests']:
+        duration = r.pop('mils')
+        print(f'\t{"  ".join([*r.values(), duration])} ms')
+    # print(json.dumps(rep, indent=4))
 
 
 def out_to_file(rep, file):
@@ -106,9 +122,7 @@ def out_to_file(rep, file):
 
 def main():
 
-    logs = get_files()
-
-    rep = prepare_report(load_data(logs))
+    rep = prepare_report(load_data(get_files()))
 
     out_to_console(rep)
 
