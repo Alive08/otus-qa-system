@@ -1,23 +1,29 @@
+# /usr/bin/env python3.9
+
 import json
 from argparse import ArgumentParser
 from pathlib import Path
+from time import time
 
 import numpy as np
 import pandas as pd
 
+'''
+Формат записи в файле лога (combined):
+%h %l %u %t "%r" %>s %b "%{Referer}i" "%{User-Agent}i" %D
+%h - имя удаленного хоста
+%l - длинное имя удаленного хоста
+%u - имя аутентифицированного пользователя
+%t - время получения запроса
+%r - тип запроса, его содержимое и версия
+%s - код состояния HTTP
+%b - количество отданных сервером байт
+%{Referer} - URL-источник запроса
+%{User-Agent} - HTTP-заголовок, содержащий информацию о запросе
+%D - длительность запроса в миллисекундах
+'''
 
-# Формат записи в файле лога (combined):
-# %h %l %u %t "%r" %>s %b "%{Referer}i" "%{User-Agent}i" %D
-# %h - имя удаленного хоста
-# %l - длинное имя удаленного хоста
-# %u - имя аутентифицированного пользователя
-# %t - время получения запроса
-# %r - тип запроса, его содержимое и версия
-# %s - код состояния HTTP
-# %b - количество отданных сервером байт
-# %{Referer} - URL-источник запроса
-# %{User-Agent} - HTTP-заголовок, содержащий информацию о запросе
-# %D - длительность запроса в миллисекундах
+TOP = 3
 
 cols = {'host': str, 'l': str, 'user': str, 'timestamp': str, 'tz': str, 'request': str,
         'status': pd.UInt64Dtype(), 'bytes': pd.UInt64Dtype(), 'referer': str, 'ua': str, 'mils': pd.UInt64Dtype()}
@@ -30,6 +36,17 @@ parser.add_argument('--to-file', nargs='?',
                     const='access_stats.json', default=None)
 parser.add_argument('--pattern', default='access*.log*')
 args = parser.parse_args()
+
+
+def benchmark(func):
+
+    def wrapper(*args, **kwargs):
+        start = time()
+        result = func(*args, **kwargs)
+        print('Elapsed time:', time() - start)
+        return result
+
+    return wrapper
 
 
 def get_files():
@@ -96,19 +113,18 @@ def prepare_report(df: pd.DataFrame):
 
 def out_to_console(rep):
     print(f"Access log(s) analysis summary:\n")
-    print("HTTP methods statistics:")
+    print("HTTP methods statistics:\n")
     for k, v in rep['methods'].items():
         print(f'\t{k}: {v}')
     print()
-    print("Top 3 hosts by requests:")
+    print(f"Top {TOP} hosts by requests:\n")
     for k, v in rep['top_hosts'].items():
         print(f'\t{k}: {v}')
     print()
-    print("Top 3 longest requests:")
+    print(f"Top {TOP} longest requests:\n")
     for r in rep['top_requests']:
         duration = r.pop('mils')
-        print(f'\t{"  ".join([*r.values(), duration])} ms')
-    # print(json.dumps(rep, indent=4))
+        print(f'\t{"  ".join([*r.values(), duration])} ms \n')
 
 
 def out_to_file(rep, file):
@@ -120,6 +136,7 @@ def out_to_file(rep, file):
         exit(1)
 
 
+@benchmark
 def main():
 
     rep = prepare_report(load_data(get_files()))
