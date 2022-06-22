@@ -105,7 +105,7 @@ def prepare_report(df: pd.DataFrame):
         dropna=True, ascending=False).head(TOP).to_dict()
 
     long_reqs = df.sort_values(by=['duration'], ascending=False).drop(
-        columns=['user', 'status', 'bytes', 'referer', 'ua']).head(TOP)
+        columns=['user', 'bytes', 'referer', 'ua']).head(TOP)
     rep['request'] = long_reqs.astype(object).replace(
         np.nan, 'Null').to_dict(orient='records')
 

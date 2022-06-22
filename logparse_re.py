@@ -22,7 +22,7 @@ from time import time
 %D - длительность запроса в миллисекундах
 '''
 # ip: (\d{1,3}\.){3}\d{1,3}), но в этом поле встречаются и доменные имена
-PATTERN = r'(?P<host>\S+)\s(?P<l>\S+)\s(?P<user>\S+)\s\[(?P<time>.+)\]\s\"(?P<method>GET|POST|HEAD|OPTIONS|PUT|TRACE|TRACK|DELETE|FLURP)\s(?P<url>\S+)\s(\S+)\"\s(?P<status>\d{3})\s(?P<bytes>\S+)\s\"(?P<referer>.*)\"\s\"(?P<ua>.*)\"\s(?P<duration>\S+)'
+PATTERN = r'(?P<host>\S+)\s+(?P<l>\S+)\s+(?P<user>\S+)\s+\[(?P<time>.+)\]\s+\"(?P<method>GET|POST|HEAD|OPTIONS|PUT|TRACE|TRACK|DELETE|FLURP)\s+(?P<url>\S+)\s+(\S+)\"\s+(?P<status>\d{3})\s+(?P<bytes>\S+)\s+\"(?P<referer>.*)\"\s+\"(?P<ua>.*)\"\s+(?P<duration>\S+)'
 
 parser = ArgumentParser()
 group = parser.add_mutually_exclusive_group()
@@ -84,8 +84,8 @@ def parse_line(line):
     raw = re.match(PATTERN, line)
     if raw:
         return raw.groupdict()
-    # else:
-    #     print('NO_MATCH ', line)
+    else:
+        print('NO_MATCH ', line)
 
 
 def prepare_report(data):
@@ -101,12 +101,15 @@ def prepare_report(data):
         if not row or not len(row):
             continue
 
+        for key in ('l', 'user', 'bytes', 'referer', 'ua'):
+            row.pop(key)
+
         for k, v in row.items():
 
             if k in ('host', 'method'):
-                if not rep[k].get(row[k]):
-                    rep[k].update({row[k]: 0})
-                rep[k].update({row[k]: rep[k][row[k]] + 1})
+                if not rep[k].get(v):
+                    rep[k].update({v: 0})
+                rep[k].update({v: rep[k][v] + 1})
 
             if k == 'duration':
                 rep['request'].append(row)
