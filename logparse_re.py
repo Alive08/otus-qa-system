@@ -22,7 +22,7 @@ from time import time
 %D - длительность запроса в миллисекундах
 '''
 # ip: (\d{1,3}\.){3}\d{1,3}), но в этом поле встречаются и доменные имена
-PATTERN = r'(?P<host>\S+)\s(?P<l>\S+)\s(?P<user>\S+)\s\[(?P<time>.+)\]\s\"(?P<method>GET|POST|HEAD|OPTIONS|PUT|TRACE|TRACK|DELETE|FLURP)\s(?P<url>\S+)\s(\S+)\"\s(?P<status>\d{3})\s(?P<bytes>\S+)\s\"(?P<referer>.*)\"\s\"(?P<ua>.*)\"\s\"(?P<duration>\S+)\"'
+PATTERN = r'(?P<host>\S+)\s(?P<l>\S+)\s(?P<user>\S+)\s\[(?P<time>.+)\]\s\"(?P<method>GET|POST|HEAD|OPTIONS|PUT|TRACE|TRACK|DELETE|FLURP)\s(?P<url>\S+)\s(\S+)\"\s(?P<status>\d{3})\s(?P<bytes>\S+)\s\"(?P<referer>.*)\"\s\"(?P<ua>.*)\"\s(?P<duration>\S+)'
 
 parser = ArgumentParser()
 group = parser.add_mutually_exclusive_group()
@@ -84,14 +84,17 @@ def parse_line(line):
     raw = re.match(PATTERN, line)
     if raw:
         return raw.groupdict()
-    else:
-        print('NO_MATCH ', line)
+    # else:
+    #     print('NO_MATCH ', line)
 
 
 def prepare_report(data):
     '''Prepare report for console output'''
 
-    rep = {}
+    rep = {"method": {},
+           "host": {},
+           "request": []
+           }
 
     for row in data:
 
@@ -101,25 +104,23 @@ def prepare_report(data):
         for k, v in row.items():
 
             if k in ('host', 'method'):
-                if not rep.get(k):
-                    rep.update({k: {}})
                 if not rep[k].get(row[k]):
                     rep[k].update({row[k]: 0})
                 rep[k].update({row[k]: rep[k][row[k]] + 1})
 
-            if 'duration' == k:
-                if not rep.get('duration'):
-                    rep['duration'] = []
-                rep['duration'].append(row)
-                rep['duration'] = sorted(
-                    rep['duration'], key=lambda x: x['duration'])
-                if len(rep['duration']) > TOP:
-                    rep['duration'].pop(0)
+            if k == 'duration':
+                rep['request'].append(row)
+                rep['request'] = sorted(
+                    rep['request'], key=lambda x: int(x['duration']))
+                if len(rep['request']) > TOP:
+                    rep['request'].pop(0)
+
     rep['method'] = dict(
         reversed(sorted(rep['method'].items(), key=lambda x: x[1])))
     rep['method'].update({'TOTAL': sum(rep['method'].values())})
     rep['host'] = dict(itertools.islice(
         reversed(sorted(rep['host'].items(), key=lambda x: x[1])), TOP))
+    rep['request'].reverse()
 
     return rep
 
@@ -137,9 +138,9 @@ def out_to_console(rep):
         print(f'\t{k}: {v}')
     print()
     print(f"Top {TOP} longest requests:\n")
-    for r in rep['duration']:
-        duration = r.pop('duration')
-        print(f'\t{"  ".join([*r.values(), duration])} ms \n')
+    for r in rep['request']:
+        print(
+            f"\t{r['host']} {r['time']} {r['method']} {r['url']} {r['duration']} ms \n")
 
 
 def out_to_file(rep, file):

@@ -24,7 +24,7 @@ import pandas as pd
 '''
 
 cols = {'host': str, 'l': str, 'user': str, 'timestamp': str, 'tz': str, 'request': str,
-        'status': pd.UInt64Dtype(), 'bytes': pd.UInt64Dtype(), 'referer': str, 'ua': str, 'mils': pd.UInt64Dtype()}
+        'status': pd.UInt64Dtype(), 'bytes': pd.UInt64Dtype(), 'referer': str, 'ua': str, 'duration': pd.UInt64Dtype()}
 
 parser = ArgumentParser()
 group = parser.add_mutually_exclusive_group()
@@ -92,21 +92,21 @@ def load_data(files):
 def prepare_report(df: pd.DataFrame):
     '''Prepare report for console output'''
 
-    rep = {"methods": None,
-           "top_hosts": None,
-           "top_requests": None
+    rep = {"method": None,
+           "host": None,
+           "request": None
            }
 
     reqs = df['method'].value_counts(dropna=True, ascending=False).to_dict()
-    rep['methods'] = reqs
-    rep['methods']['TOTAL'] = sum(reqs.values())
+    rep['method'] = reqs
+    rep['method']['TOTAL'] = sum(reqs.values())
 
-    rep['top_hosts'] = df['host'].value_counts(
+    rep['host'] = df['host'].value_counts(
         dropna=True, ascending=False).head(TOP).to_dict()
 
-    long_reqs = df.sort_values(by=['mils'], ascending=False).drop(
+    long_reqs = df.sort_values(by=['duration'], ascending=False).drop(
         columns=['user', 'status', 'bytes', 'referer', 'ua']).head(TOP)
-    rep['top_requests'] = long_reqs.astype(object).replace(
+    rep['request'] = long_reqs.astype(object).replace(
         np.nan, 'Null').to_dict(orient='records')
 
     return rep
@@ -117,17 +117,17 @@ def out_to_console(rep):
 
     print(f"Access log(s) analysis summary:\n")
     print("HTTP methods statistics:\n")
-    for k, v in rep['methods'].items():
+    for k, v in rep['method'].items():
         print(f'\t{k}: {v}')
     print()
     print(f"Top {TOP} hosts by requests:\n")
-    for k, v in rep['top_hosts'].items():
+    for k, v in rep['host'].items():
         print(f'\t{k}: {v}')
     print()
     print(f"Top {TOP} longest requests:\n")
-    for r in rep['top_requests']:
-        duration = r.pop('mils')
-        print(f'\t{"  ".join([*r.values(), duration])} ms \n')
+    for r in rep['request']:
+        print(
+            f"\t{r['host']} {r['timestamp']} {r['method']} {r['url']} {r['duration']} ms \n")
 
 
 def out_to_file(rep, file):
