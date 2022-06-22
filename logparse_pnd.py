@@ -23,8 +23,6 @@ import pandas as pd
 %D - длительность запроса в миллисекундах
 '''
 
-TOP = 3
-
 cols = {'host': str, 'l': str, 'user': str, 'timestamp': str, 'tz': str, 'request': str,
         'status': pd.UInt64Dtype(), 'bytes': pd.UInt64Dtype(), 'referer': str, 'ua': str, 'mils': pd.UInt64Dtype()}
 
@@ -35,7 +33,10 @@ group.add_argument('--dir', nargs='?', const='./', default=None)
 parser.add_argument('--to-file', nargs='?',
                     const='access_stats.json', default=None)
 parser.add_argument('--pattern', default='access*.log*')
+parser.add_argument('--top', type=int, default=3)
 args = parser.parse_args()
+
+TOP = args.top
 
 
 def benchmark(func):
@@ -101,10 +102,10 @@ def prepare_report(df: pd.DataFrame):
     rep['methods']['TOTAL'] = sum(reqs.values())
 
     rep['top_hosts'] = df['host'].value_counts(
-        dropna=True, ascending=False).head(3).to_dict()
+        dropna=True, ascending=False).head(TOP).to_dict()
 
     long_reqs = df.sort_values(by=['mils'], ascending=False).drop(
-        columns=['user', 'status', 'bytes', 'referer', 'ua']).head(3)
+        columns=['user', 'status', 'bytes', 'referer', 'ua']).head(TOP)
     rep['top_requests'] = long_reqs.astype(object).replace(
         np.nan, 'Null').to_dict(orient='records')
 
@@ -112,6 +113,8 @@ def prepare_report(df: pd.DataFrame):
 
 
 def out_to_console(rep):
+    """Output report to console"""
+
     print(f"Access log(s) analysis summary:\n")
     print("HTTP methods statistics:\n")
     for k, v in rep['methods'].items():
@@ -128,6 +131,8 @@ def out_to_console(rep):
 
 
 def out_to_file(rep, file):
+    """Output json report to file"""
+
     try:
         with open(file, 'w') as f:
             json.dump(rep, f, indent=4)

@@ -21,10 +21,8 @@ from time import time
 %{User-Agent} - HTTP-заголовок, содержащий информацию о запросе
 %D - длительность запроса в миллисекундах
 '''
-
-TOP = 3
-
-PATTERN = r'(?P<host>(\d{1,3}\.){3}\d{1,3})(\.*\S*)\s(?P<l>\S+)\s(?P<user>\S+)\s\[(?P<time>.+)\]\s\"(?P<method>GET|POST|HEAD|OPTIONS|PUT|TRACE|TRACK|DELETE|FLURP)\s(?P<url>\S+)\s(\S+)\"\s(?P<status>\d{3})\s(?P<bytes>\S+)\s\"(?P<referer>\S*)\"\s\"(?P<ua>.*)\"\s\"(?P<duration>\S+)\"'
+# ip: (\d{1,3}\.){3}\d{1,3}), но в этом поле встречаются и доменные имена
+PATTERN = r'(?P<host>\S+)\s(?P<l>\S+)\s(?P<user>\S+)\s\[(?P<time>.+)\]\s\"(?P<method>GET|POST|HEAD|OPTIONS|PUT|TRACE|TRACK|DELETE|FLURP)\s(?P<url>\S+)\s(\S+)\"\s(?P<status>\d{3})\s(?P<bytes>\S+)\s\"(?P<referer>.*)\"\s\"(?P<ua>.*)\"\s\"(?P<duration>\S+)\"'
 
 parser = ArgumentParser()
 group = parser.add_mutually_exclusive_group()
@@ -33,7 +31,10 @@ group.add_argument('--dir', nargs='?', const='./', default=None)
 parser.add_argument('--to-file', nargs='?',
                     const='access_stats.json', default=None)
 parser.add_argument('--pattern', default='access*.log*')
+parser.add_argument('--top', type=int, default=3)
 args = parser.parse_args()
+
+TOP = args.top
 
 
 def benchmark(func):
@@ -66,6 +67,7 @@ def get_files():
 
 def gen_data(files):
     """Load data from given files"""
+
     for file in files:
         try:
             with open(file, 'r') as f:
@@ -82,6 +84,8 @@ def parse_line(line):
     raw = re.match(PATTERN, line)
     if raw:
         return raw.groupdict()
+    else:
+        print('NO_MATCH ', line)
 
 
 def prepare_report(data):
@@ -89,32 +93,31 @@ def prepare_report(data):
 
     rep = {}
 
-    for raw in data:
+    for row in data:
 
-        if not raw or not len(raw):
+        if not row or not len(row):
             continue
 
-        for k, v in raw.items():
+        for k, v in row.items():
 
             if k in ('host', 'method'):
                 if not rep.get(k):
                     rep.update({k: {}})
-                if not rep[k].get(raw[k]):
-                    rep[k].update({raw[k]: 0})
-                rep[k].update({raw[k]: rep[k][raw[k]] + 1})
+                if not rep[k].get(row[k]):
+                    rep[k].update({row[k]: 0})
+                rep[k].update({row[k]: rep[k][row[k]] + 1})
 
             if 'duration' == k:
                 if not rep.get('duration'):
                     rep['duration'] = []
-                rep['duration'].append(raw)
+                rep['duration'].append(row)
                 rep['duration'] = sorted(
                     rep['duration'], key=lambda x: x['duration'])
-                # only TOP durations
                 if len(rep['duration']) > TOP:
                     rep['duration'].pop(0)
-    # only TOP hosts
     rep['method'] = dict(
         reversed(sorted(rep['method'].items(), key=lambda x: x[1])))
+    rep['method'].update({'TOTAL': sum(rep['method'].values())})
     rep['host'] = dict(itertools.islice(
         reversed(sorted(rep['host'].items(), key=lambda x: x[1])), TOP))
 
@@ -122,6 +125,8 @@ def prepare_report(data):
 
 
 def out_to_console(rep):
+    """Output report to console"""
+
     print(f"Access log(s) analysis summary:\n")
     print("HTTP methods statistics:\n")
     for k, v in rep['method'].items():
@@ -138,6 +143,8 @@ def out_to_console(rep):
 
 
 def out_to_file(rep, file):
+    """Output json report to file"""
+
     try:
         with open(file, 'w') as f:
             json.dump(rep, f, indent=4)
