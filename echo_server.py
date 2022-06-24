@@ -1,67 +1,68 @@
 import http
 import socket
-import socketserver
-from threading import Thread
+import selectors
 import json
 import sys
+from argparse import ArgumentParser
 
-HOST = 'localhost'
-PORT = 2000
+parser = ArgumentParser()
+parser.add_argument('--host', default='0.0.0.0')
+parser.add_argument('--port', type=int, default=9999)
+args = parser.parse_args()
 
-class SingleTCPHandler(socketserver.BaseRequestHandler):
-    "One instance per connection.  Override handle(self) to customize action."
-    def handle(self):
-        # self.request is the client connection
-        while True:
-            data = self.request.recv(1024)  # clip input at 1Kb
-            if not data:
-                break
-            text = data.decode('utf-8')
-            # print(json.loads(text))
-            self.request.send('OK'.encode('utf-8'))
-        self.request.close()
+HOST, PORT = args.host, args.port
 
+selector = selectors.DefaultSelector()
 
-class SimpleServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
-    # Ctrl-C will cleanly kill all spawned threads
-    daemon_threads = True
-    # much faster rebinding
-    allow_reuse_address = True
-    allow_reuse_port = True
-    
-    def __init__(self, server_address, RequestHandlerClass):
-        socketserver.TCPServer.__init__(self, server_address, RequestHandlerClass)
+def server(host, port):
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # IPv4 / TCP
+    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, socket.SO_REUSEPORT) # reuse addr and port for faster restart
+    server_socket.bind((host, port))
+    server_socket.listen()
+    print(f'Start listening at {server_socket.getsockname()}')
+
+    selector.register(fileobj=server_socket, events=selectors.EVENT_READ, data=accept)
 
 
+def accept(sock: socket.socket, mask):
+    client_socket, addrinfo = sock.accept()
+    print(f'Accepted connection from {addrinfo}')
 
-def run_server(host='127.0.0.1', port=33333):
-    sock = socket.socket()
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.bind((host, port))
-    sock.listen()
+    selector.register(fileobj=client_socket, events=selectors.EVENT_READ, data=reply)
+ 
+
+def reply(sock: socket.socket, mask):
+    print(mask)
+    request = sock.recv(4096)
+    if request:
+        sock.send(prepare_response(request))
+    else:
+        selector.unregister(sock)
+        print(f'Closing connection from {sock.getpeername()}')
+        sock.close()
+        
+
+
+def parse_request(request):
+    print(request.decode())
+    return request
+
+
+def prepare_response(request):
+    return parse_request(request)
+
+
+def event_loop():
     while True:
-        print(f"Listening on {host}:{port}")
-        client_sock, addr = sock.accept()
-        print('Connection from', addr)
-        Thread(target=handle_client, args=(client_sock,)).start()
+        
+        events = selector.select() # key: SelectorKey, events
 
-def handle_client(sock: socket.socket):
-    print(f"Serving client {sock.getpeername()}")
-    while True:
-        received_data = sock.recv(4096)
-        if not received_data:
-            break
-        print(received_data.decode())
-        sock.sendall(received_data)
+        for key, mask in events:
+            # print(key, event)
+            callback = key.data
+            callback(key.fileobj, mask)
 
-    print('Client disconnected:', sock.getpeername())
-    sock.close()
 
 if __name__ == '__main__':
-    # run_server()
-    server = SimpleServer((HOST, PORT), SingleTCPHandler)
-    # terminate with Ctrl-C
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        sys.exit(0)
+    server(HOST, PORT)
+    event_loop()
