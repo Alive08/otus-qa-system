@@ -10,18 +10,19 @@ Proc = namedtuple('Proc', ('pid', 'user', 'cpu', 'mem', 'cmd'))
 
 KB = 1024
 
-# ps -a -x -o pid=pid,user=user,pcpu=cpu,rsz=mem,comm=cmd | sed -r  "s/ +/|/g"
+# ps -a -x -o pid=pid,user=user,pcpu=cpu,rsz=mem,comm=cmd | sed -r 's/ +/ /g; s/^ *//'
 
-PS = ['/usr/bin/ps', '-a', '-x', '-o',
-      'pid=pid,user=user,pcpu=cpu,rsz=mem,comm=cmd']
+PS = ['ps', '-a', '-x', '-o', 'pid=pid,user=user,pcpu=cpu,rsz=mem,comm=cmd']
 
-SED = ['/usr/bin/sed', '-r', "s/ +/|/g"]
+SED = ['sed', '-r', 's/^ *//; s/ +/ /g']
 
 filename = datetime.now().strftime("%d-%m-%Y-%H:%M:%S-scan.txt")
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--to-file', default=False,
-                    action=argparse.BooleanOptionalAction)
+parser.add_argument('--to-file', action='store_true')
+parser.add_argument('--no-to-file', dest='to_file', action='store_false')
+parser.set_defaults(to_file=False)
+
 args = parser.parse_args()
 
 
@@ -41,9 +42,9 @@ def get_procs():
         with Popen(PS, stdout=PIPE, universal_newlines=True) as ps:
             try:
                 with Popen(SED, stdin=ps.stdout, stdout=PIPE, universal_newlines=True) as sed:
-                    reader = csv.DictReader(sed.stdout, delimiter='|')
-                    raw = [{k.strip(): tryconvert(int, float)(v.strip())
-                            for k, v in row.items() if v} for row in list(reader)]
+                    reader = csv.DictReader(sed.stdout, delimiter=' ')
+                    raw = [{k: tryconvert(int, float)(v)
+                            for k, v in row.items() if v} for row in reader]
             except Exception as e:
                 raise
     except Exception as e:
@@ -60,7 +61,8 @@ def update_user(users, row):
         users.update({user: {'cpu': 0, 'mem': 0, 'procs': 0}})
 
     for key in ('cpu', 'mem'):
-        users[user][key] += row[key]
+        users[user][key] += tryconvert(int, float)(row[key])
+
     users[user]['procs'] += 1
 
 
@@ -87,7 +89,6 @@ def prepare_report(result):
     users = {}
     for row in result:
         update_user(users, row)
-
     users = dict(
         sorted(users.items(), key=lambda x: x[1]['procs'], reverse=True))
 
@@ -102,7 +103,8 @@ def prepare_report(result):
     max_cpu_consumer = get_max_usage(result, 'cpu')
 
     report = []
-    report.append(f"Активные пользователи системы: {', '.join(users.keys())}")
+    report.append(
+        f"Активные пользователи системы: {', '.join(map(str, users.keys()))}")
     report.append(f"Всего процессов запущено: {procs}")
     report.append(f"Пользовательских процессов:")
     for user, data in users.items():
@@ -120,6 +122,7 @@ def prepare_report(result):
 
 def main():
     rep = prepare_report(get_procs())
+
     out_to_console(rep)
 
     if args.to_file:
