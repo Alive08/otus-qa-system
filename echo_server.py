@@ -70,16 +70,11 @@ def reply(sock: socket.socket, mask):
             logger.debug("Got %s from %s:%s",
                          HTTPStatus.BAD_REQUEST.phrase, *client_addr)
             close(sock)
-<<<<<<< HEAD
             return
         
         if "Connection: close" in response.decode():
             close(sock)
 
-=======
-        # if "Connection: close" in response.decode():
-        #     close(sock)
->>>>>>> 98500fecde3a04297e48930b9e028d44902ced15
     else:
         logger.debug("Client %s:%s has disconnected", *client_addr)
         close(sock)
