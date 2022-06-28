@@ -5,9 +5,6 @@ from argparse import ArgumentParser
 from http import HTTPStatus
 from urllib.parse import parse_qs, urlparse
 
-LOG_FORMAT = '{asctime} [{levelname}] [{name}] [{funcName}] > {message}'
-logging.basicConfig(level=logging.DEBUG, format=LOG_FORMAT, style='{', )
-logger = logging.getLogger('ECHO')
 
 parser = ArgumentParser()
 parser.add_argument('--host', default='0.0.0.0')
@@ -17,6 +14,13 @@ args = parser.parse_args()
 HOST, PORT = args.host, args.port
 
 selector = selectors.DefaultSelector()
+logger = None
+
+
+def init_logger(name):
+    LOG_FORMAT = '{asctime} [{levelname}] [{name}] [{funcName}] > {message}'
+    logging.basicConfig(level=logging.DEBUG, format=LOG_FORMAT, style='{', )
+    return logging.getLogger(name)
 
 
 def server(host, port):
@@ -40,6 +44,7 @@ def accept(sock: socket.socket, mask):
     register the socket for events polling"""
 
     client_socket, addrinfo = sock.accept()
+    client_socket.setblocking(False)
     logger.debug('Accepted connection from %s:%s', *addrinfo)
     logger.debug('Registering client socket %s:%s for READ events', *addrinfo)
     selector.register(fileobj=client_socket,
@@ -66,12 +71,13 @@ def reply(sock: socket.socket, mask):
         response = generate_response(request)
         logger.debug("Sending response to %s:%s", *client_addr)
         sock.sendall(response)
+
         if HTTPStatus.BAD_REQUEST.phrase in response.decode():
             logger.debug("Got %s from %s:%s",
                          HTTPStatus.BAD_REQUEST.phrase, *client_addr)
             close(sock)
             return
-        
+
         if "Connection: close" in response.decode():
             close(sock)
 
@@ -95,6 +101,7 @@ def parse_request(request):
 
     url_parsed = urlparse(url)
     qs_parsed = parse_qs(url_parsed.query)
+
     return {
         'schema': schema,
         'method': method,
@@ -179,6 +186,8 @@ def event_loop():
 
 def main():
 
+    global logger
+    logger = init_logger('ECHO')
     server(HOST, PORT)
     event_loop()
 
