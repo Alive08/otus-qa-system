@@ -1,3 +1,4 @@
 # otus-qa-system
-Basic Python system programming
+Python system programming example
 
+Homework #8
