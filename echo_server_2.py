@@ -1,27 +1,172 @@
+from http.client import HTTPConnection
+from http.server import HTTPServer
 import logging
 import selectors
 import socket
 from argparse import ArgumentParser
 from http import HTTPStatus
 from urllib.parse import parse_qs, urlparse
-
+from collections import namedtuple
 
 parser = ArgumentParser()
 parser.add_argument('--host', default='0.0.0.0')
-parser.add_argument('--port', type=int, default=9000)
+parser.add_argument('--port', type=int, default=9999)
 args = parser.parse_args()
 
 HOST, PORT = args.host, args.port
-
-selector = selectors.DefaultSelector()
-
-logger = None
+BUFF_SIZE = 4096
 
 
 def init_logger(name):
     LOG_FORMAT = '{asctime} [{levelname}] [{name}] [{funcName}] > {message}'
     logging.basicConfig(level=logging.DEBUG, format=LOG_FORMAT, style='{', )
     return logging.getLogger(name)
+
+
+def find_http_status(code):
+    """Find HTTP status by its code"""
+
+    for status in HTTPStatus:
+        if status.value == code:
+            return status
+
+
+Header = namedtuple('Header', ('name', 'value'))
+
+
+class Request:
+
+    def __init__(self, data=None) -> None:
+        self._method, self._url, self._schema = self._parse_startline(data)
+        self._headers = self._get_headers(data)
+        self._keep_alive = False
+        self._body = self._get_body(data)
+
+    def _parse_startline(self, data=None):
+        pass
+
+    def _get_headers(self, data):
+        pass
+
+    def _get_body(self, data):
+        pass
+
+
+class Response:
+
+    def __init__(self, status=HTTPStatus.OK, keep_alive=False, content=None):
+        self._status = status
+        self._keep_alive = keep_alive
+        self._content = content
+        self._headers = None
+        self._body = None
+
+    def _add_header(self, header: Header):
+        self._headers.append(header)
+
+    def _generate_headers(self):
+        return '\n'.join(self._headers)
+
+    def _generate_body(self):
+        if self._content:
+            return ''.join(self._content)
+
+    def _generate_response(self):
+        return None
+
+
+class EchoServer:
+
+    def __init__(self, host='127.0.0.1', port='9000') -> None:
+        self._host = host
+        self._port = port
+        self._logger = init_logger('ECHO')
+        self._selector = selectors.DefaultSelector()
+
+    def listen(self):
+        self._server_socket = socket.socket(
+            socket.AF_INET, socket.SOCK_STREAM)
+        self._server_socket.setsockopt(
+            socket.SOL_SOCKET, socket.SO_REUSEADDR, socket.SO_REUSEPORT)
+        self._server_socket.setblocking(False)
+        self._server_socket.bind((self.host, self.port))
+        self._server_addr = self._server_socket.getsockname()
+        self._server_socket.listen()
+        self._logger.debug('Start listening at %s:%s', *self._server_addr)
+
+        self._selector.register(fileobj=self._server_socket,
+                                events=selectors.EVENT_READ, data=self.accept)
+
+    def accept(self, sock: socket.socket):
+        self._client_socket, self._client_addr = sock.accept()
+        self._client_socket.setblocking(False)
+        self._logger.debug('Accepted connection from %s:%s',
+                           *self._client_addr)
+        self._logger.debug(
+            'Registering client socket %s:%s for READ events', *self._client_addr)
+        self._selector.register(fileobj=self._client_socket,
+                                events=selectors.EVENT_READ, data=self.serve_request)
+
+    def close(self):
+        logger.debug('Unregistering client socket %s:%s', *self._client_addr)
+        selector.unregister(self._client_socket)
+        logger.debug("Closing connection from %s:%s", *self._client_addr)
+        self._client_socket.close()
+
+    def serve_request(self):
+
+        request = self._client_socket.recv(BUFF_SIZE)
+
+        if request:
+
+            self._logger.debug("Got request from %s:%s", *self._client_addr)
+            request += ':'.join(map(str, self._client_addr)).encode()
+            response = self._generate_response(request)
+            logger.debug("Sending response to %s:%s", *self._client_addr)
+
+            self._client_socket.sendall(response)
+
+            if HTTPStatus.BAD_REQUEST.phrase in response.decode():
+                logger.debug("Got %s from %s:%s",
+                             HTTPStatus.BAD_REQUEST.phrase, *self._client_addr)
+                self.close()
+                return
+
+            if "Connection: close" in response.decode():
+                self.close()
+
+        else:
+            logger.debug("Client %s:%s has disconnected", *self._client_addr)
+            self.close()
+
+    def parse_request(self, request):
+        """Parse client's request"""
+
+        headers = request.decode().split('\n')
+
+        # minimal sanity check
+        try:
+            method, url, schema = headers.pop(0).split()
+            assert method in ('GET', 'POST', 'PUT', 'HEAD')
+            assert 'HTTP' in schema
+        except:
+            return f"HTTP/1.1 {HTTPStatus.BAD_REQUEST.value} {HTTPStatus.BAD_REQUEST.phrase}\nConnection: close\n\n"
+
+        url_parsed = urlparse(url)
+        qs_parsed = parse_qs(url_parsed.query)
+
+        return {
+            'schema': schema,
+            'method': method,
+            'url': url,
+            'url_parsed': url_parsed,
+            'qs_parsed': qs_parsed,
+            'headers': headers
+        }
+
+
+selector = selectors.DefaultSelector()
+logger = None
 
 
 def server(host, port):
