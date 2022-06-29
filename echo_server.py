@@ -1,17 +1,21 @@
 import logging
+import re
 import selectors
 import socket
 from argparse import ArgumentParser
+from collections import namedtuple
 from http import HTTPStatus
 from urllib.parse import parse_qs, urlparse
-
 
 parser = ArgumentParser()
 parser.add_argument('--host', default='0.0.0.0')
 parser.add_argument('--port', type=int, default=9000)
 args = parser.parse_args()
 
+Header = namedtuple('Header', ('name', 'value'))
+
 HOST, PORT = args.host, args.port
+BUFF_SIZE = 4096
 
 selector = selectors.DefaultSelector()
 
@@ -22,6 +26,14 @@ def init_logger(name):
     LOG_FORMAT = '{asctime} [{levelname}] [{name}] [{funcName}] > {message}'
     logging.basicConfig(level=logging.DEBUG, format=LOG_FORMAT, style='{', )
     return logging.getLogger(name)
+
+
+def find_http_status(code):
+    """Find HTTP status by its code"""
+
+    for status in HTTPStatus:
+        if status.value == code:
+            return status
 
 
 def server(host, port):
@@ -64,12 +76,14 @@ def reply(sock: socket.socket, mask):
 
     client_addr = sock.getpeername()
 
-    request = sock.recv(4096)
-    peer = ':'.join(map(str, client_addr)).encode()
+    request = sock.recv(BUFF_SIZE)
+
     if request:
+
         logger.debug("Got request from %s:%s", *client_addr)
-        request += peer
-        response = generate_response(request)
+
+        response = generate_response(request, client_addr)
+
         logger.debug("Sending response to %s:%s", *client_addr)
         sock.sendall(response)
 
@@ -90,20 +104,79 @@ def reply(sock: socket.socket, mask):
 def parse_request(request):
     """Parse client's request"""
 
-    headers = request.decode().split('\n')
+    startline: str = request.decode().split('\n', 1)[0]
 
     # minimal sanity check
     try:
-        method, url, schema = headers.pop(0).split()
-        assert method in ('GET', 'POST', 'PUT', 'HEAD')
+        method, url, schema = startline.split()
         assert 'HTTP' in schema
     except:
-        return f"HTTP/1.1 {HTTPStatus.BAD_REQUEST.value} {HTTPStatus.BAD_REQUEST.phrase}\nConnection: close\n\n"
+
+        return {
+            'status': HTTPStatus.BAD_REQUEST,
+            'schema': 'HTTP/1.1',
+            'headers': {'Connection': 'close'}
+        }
+
+    try:
+        assert method in ('GET', 'POST')
+    except AssertionError:
+
+        return {
+            'status': HTTPStatus.NOT_IMPLEMENTED,
+            'schema': schema,
+            'headers': {'Connection': 'close'}
+        }
+
+    raw_headers, body = request.decode().split('\r\n\r\n', 1)
+
+    headers = {}
+
+    for header in raw_headers.split('\r\n'):
+        header = header.split(': ', 1)
+        if len(header) == 2:
+            header = Header(*header)
+            headers[header.name.lower()] = header.value
+
+    # print(headers)
 
     url_parsed = urlparse(url)
-    qs_parsed = parse_qs(url_parsed.query)
+    qs_parsed = None
+
+    if method == 'GET':
+        qs_parsed = parse_qs(url_parsed.query)
+
+    elif method == 'POST' and headers.get('content-type'):
+        ''' We handle only trivial case here - only text form data
+        '''
+
+        if 'application/x-www-form-urlencoded' in headers['content-type']:
+            qs_parsed = parse_qs(body)
+
+        elif 'multipart/form-data' in headers['content-type']:
+            boundary = headers['content-type'].split('; boundary=', 1)[1]
+            pattern = f"\-*{boundary}\-*"
+            form_data = [part.strip() for part in re.split(pattern, body)]
+            params = []
+            for part in form_data:
+                # ex: 'Content-Disposition: form-data; name="status"\r\n\r\n500\r\n'
+                param = re.match(r'.+name\=\"(.+)\"\s+(\S+)\s*', part)
+                if param:
+                    params.append('='.join(param.groups()))
+            if params:
+                qs_parsed = parse_qs('&'.join(params))
+
+    try:
+        code = int(qs_parsed['status'][0])
+    except:
+        code = 200
+
+    status = find_http_status(code)
+    if not status:
+        status = HTTPStatus.OK
 
     return {
+        'status': status,
         'schema': schema,
         'method': method,
         'url': url,
@@ -113,69 +186,54 @@ def parse_request(request):
     }
 
 
-def find_http_status(code):
-    """Find HTTP status by its code"""
-
-    for status in HTTPStatus:
-        if status.value == code:
-            return status
-
-
-def get_http_status(request):
-    code = None
-    try:
-        code = request['qs_parsed'].get('status')[0]
-    except:
-        pass
-    if code:
-        try:
-            code = int(code)
-        except:
-            pass
-    status = find_http_status(code)
-    if not status:
-        status = HTTPStatus.OK
-    return status
-
-
 def generate_headers(request):
-    headers = []
-    status = get_http_status(request)
-    headers.append(f"{request['schema']} {status.value} {status.phrase}")
 
-    if any(['keep-alive' in h for h in request['headers']]):
-        headers.append("Connection: keep-alive")
+    headers = {}
+
+    if 'keep-alive' in request['headers'].values():
+        headers.update({"Connection": "keep-alive"})
     else:
-        headers.append("Connection: close")
+        headers.update({"Connection": "close"})
 
-    headers.append("Content-type: text/html")
-    return '\n'.join(headers)
+    headers.update({"Content-Type": "text/html"})
+
+    return '\n'.join([f"{k}: {v}" for k, v in headers.items()])
 
 
-def generate_content(request):
+def generate_content(request, client_addr):
     content = []
-    status = get_http_status(request)
-    content.append('<html><body>')
+    status = request['status']
+
+    content.append(
+        f"<h4>Request source: {client_addr[0]}:{client_addr[1]}</h4>")
     content.append(f"<h4>Request method: {request['method']}</h4>")
-    content.append(f"<h4>Request source: {request['headers'].pop()}</h4>")
     content.append(f"<h4>Response status: {status.value} {status.phrase}</h4>")
+
     content.append("<h3>Request headers:</h3>")
-    content.extend([f"<h4>{h}</h4>" for h in request['headers']])
-    content.append('</body></html>')
+    content.extend([f"<h4>{k.capitalize()}: {v}</h4>" for k,
+                   v in request['headers'].items()])
+
+    if request['qs_parsed']:
+        content.append("<h3>Request parameters:</h3>")
+        content.extend([f"<h4>{k}: {v}</h4>" for k,
+                        v in request['qs_parsed'].items()])
     return ''.join(content)
 
 
-def generate_response(request):
+def generate_startline(request):
+    return f"{request['schema']} {request['status'].value} {request['status'].phrase}\n"
+
+
+def generate_response(request, client_addr):
+
     parsed_request = parse_request(request)
 
-    if HTTPStatus.BAD_REQUEST.phrase in parsed_request:
-        return parsed_request.encode()
-
-    body = generate_content(parsed_request)
+    startline = generate_startline(parsed_request)
+    body = generate_content(parsed_request, client_addr)
     headers = generate_headers(parsed_request)
     headers += f"\nContent-length: {len(body)}\n\n"
 
-    return (headers + body).encode()
+    return (startline + headers + body).encode()
 
 
 def event_loop():
