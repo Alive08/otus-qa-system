@@ -5,6 +5,7 @@ import socket
 from argparse import ArgumentParser
 from collections import namedtuple
 from http import HTTPStatus
+from tracemalloc import start
 from urllib.parse import parse_qs, urlparse
 
 parser = ArgumentParser()
@@ -81,17 +82,10 @@ def reply(sock: socket.socket, mask):
     if request:
 
         logger.debug("Got request from %s:%s", *client_addr)
-
         response = generate_response(request, client_addr)
-
         logger.debug("Sending response to %s:%s", *client_addr)
-        sock.sendall(response)
 
-        if HTTPStatus.BAD_REQUEST.phrase in response.decode():
-            logger.debug("Got %s from %s:%s",
-                         HTTPStatus.BAD_REQUEST.phrase, *client_addr)
-            close(sock)
-            return
+        sock.sendall(response)
 
         if "Connection: close" in response.decode():
             close(sock)
@@ -111,7 +105,6 @@ def parse_request(request):
         method, url, schema = startline.split()
         assert 'HTTP' in schema
     except:
-
         return {
             'status': HTTPStatus.BAD_REQUEST,
             'schema': 'HTTP/1.1',
@@ -121,7 +114,6 @@ def parse_request(request):
     try:
         assert method in ('GET', 'POST')
     except AssertionError:
-
         return {
             'status': HTTPStatus.NOT_IMPLEMENTED,
             'schema': schema,
@@ -147,7 +139,7 @@ def parse_request(request):
         qs_parsed = parse_qs(url_parsed.query)
 
     elif method == 'POST' and headers.get('content-type'):
-        ''' We handle only trivial case here - only text form data
+        ''' We handle just a trivial case here - only text form data
         '''
 
         if 'application/x-www-form-urlencoded' in headers['content-type']:
@@ -229,6 +221,11 @@ def generate_response(request, client_addr):
     parsed_request = parse_request(request)
 
     startline = generate_startline(parsed_request)
+
+    if parsed_request['status'] in (HTTPStatus.BAD_REQUEST, HTTPStatus.NOT_IMPLEMENTED):
+        status = parsed_request['status']
+        return (startline + "Connection: close\n\n" + f"<h2>{status.value} {status.phrase}</h2>").encode()
+
     body = generate_content(parsed_request, client_addr)
     headers = generate_headers(parsed_request)
     headers += f"\nContent-length: {len(body)}\n\n"
