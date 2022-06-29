@@ -1,5 +1,3 @@
-from http.client import HTTPConnection
-from http.server import HTTPServer
 import logging
 import selectors
 import socket
