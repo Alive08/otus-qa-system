@@ -5,7 +5,7 @@ import socket
 from argparse import ArgumentParser
 from collections import namedtuple
 from http import HTTPStatus
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 parser = ArgumentParser()
 parser.add_argument('--host', default='0.0.0.0')
@@ -110,16 +110,14 @@ def parse_post(headers, body):
         boundary = headers['content-type'].split('; boundary=', 1)[1]
         pattern = f"\-*{boundary}\-*"
         form_data = [part.strip() for part in re.split(pattern, body)]
-        params = []
+        params = {}
         for part in form_data:
             # ex: 'Content-Disposition: form-data; name="status"\r\n\r\n500\r\n'
             param = re.match(r'.+name\=\"(.+)\"\s+(\S+)\s*', part)
             if param:
-                params.append('='.join(param.groups()))
+                params.update([param.groups()])
         if params:
-            return parse_qs('&'.join(params))
-
-    return None
+            return parse_qs(urlencode(params))
 
 
 def parse_request(request):
@@ -207,8 +205,7 @@ def generate_content(request, client_addr):
     content = []
     status = request['status']
 
-    content.append(
-        f"<h4>Request source: {client_addr[0]}:{client_addr[1]}</h4>")
+    content.append("<h4>Request source: {}:{}</h4>".format(*client_addr))
 
     if request.get('method'):
         content.append(f"<h4>Request method: {request['method']}</h4>")
