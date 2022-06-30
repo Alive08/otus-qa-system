@@ -79,7 +79,6 @@ def reply(sock: socket.socket, mask):
     request = sock.recv(BUFF_SIZE)
 
     if request:
-
         logger.debug("Got request from %s:%s", *client_addr)
 
         response = generate_response(request, client_addr)
@@ -101,6 +100,28 @@ def reply(sock: socket.socket, mask):
         close(sock)
 
 
+def parse_post(headers, body):
+    ''' We handle only trivial case here - only text form data'''
+
+    if 'application/x-www-form-urlencoded' in headers['content-type']:
+        return parse_qs(body)
+
+    if 'multipart/form-data' in headers['content-type']:
+        boundary = headers['content-type'].split('; boundary=', 1)[1]
+        pattern = f"\-*{boundary}\-*"
+        form_data = [part.strip() for part in re.split(pattern, body)]
+        params = []
+        for part in form_data:
+            # ex: 'Content-Disposition: form-data; name="status"\r\n\r\n500\r\n'
+            param = re.match(r'.+name\=\"(.+)\"\s+(\S+)\s*', part)
+            if param:
+                params.append('='.join(param.groups()))
+        if params:
+            return parse_qs('&'.join(params))
+
+    return None
+
+
 def parse_request(request):
     """Parse client's request"""
 
@@ -111,7 +132,6 @@ def parse_request(request):
         method, url, schema = startline.split()
         assert 'HTTP' in schema
     except:
-
         return {
             'status': HTTPStatus.BAD_REQUEST,
             'schema': 'HTTP/1.1',
@@ -121,7 +141,6 @@ def parse_request(request):
     try:
         assert method in ('GET', 'POST')
     except AssertionError:
-
         return {
             'status': HTTPStatus.NOT_IMPLEMENTED,
             'schema': schema,
@@ -138,8 +157,6 @@ def parse_request(request):
             header = Header(*header)
             headers[header.name.lower()] = header.value
 
-    # print(headers)
-
     url_parsed = urlparse(url)
     qs_parsed = None
 
@@ -147,24 +164,7 @@ def parse_request(request):
         qs_parsed = parse_qs(url_parsed.query)
 
     elif method == 'POST' and headers.get('content-type'):
-        ''' We handle only trivial case here - only text form data
-        '''
-
-        if 'application/x-www-form-urlencoded' in headers['content-type']:
-            qs_parsed = parse_qs(body)
-
-        elif 'multipart/form-data' in headers['content-type']:
-            boundary = headers['content-type'].split('; boundary=', 1)[1]
-            pattern = f"\-*{boundary}\-*"
-            form_data = [part.strip() for part in re.split(pattern, body)]
-            params = []
-            for part in form_data:
-                # ex: 'Content-Disposition: form-data; name="status"\r\n\r\n500\r\n'
-                param = re.match(r'.+name\=\"(.+)\"\s+(\S+)\s*', part)
-                if param:
-                    params.append('='.join(param.groups()))
-            if params:
-                qs_parsed = parse_qs('&'.join(params))
+        qs_parsed = parse_post(headers, body)
 
     try:
         code = int(qs_parsed['status'][0])
@@ -187,6 +187,7 @@ def parse_request(request):
 
 
 def generate_headers(request):
+    '''Generate response headers'''
 
     headers = {}
 
@@ -201,30 +202,40 @@ def generate_headers(request):
 
 
 def generate_content(request, client_addr):
+    '''Generate response content'''
+
     content = []
     status = request['status']
 
     content.append(
         f"<h4>Request source: {client_addr[0]}:{client_addr[1]}</h4>")
-    content.append(f"<h4>Request method: {request['method']}</h4>")
+
+    if request.get('method'):
+        content.append(f"<h4>Request method: {request['method']}</h4>")
+
     content.append(f"<h4>Response status: {status.value} {status.phrase}</h4>")
 
-    content.append("<h3>Request headers:</h3>")
-    content.extend([f"<h4>{k.capitalize()}: {v}</h4>" for k,
-                   v in request['headers'].items()])
+    if request.get('headers'):
+        content.append("<h3>Request headers:</h3>")
+        content.extend([f"<h4>{k.capitalize()}: {v}</h4>" for k,
+                        v in request['headers'].items()])
 
-    if request['qs_parsed']:
+    if request.get('qs_parsed'):
         content.append("<h3>Request parameters:</h3>")
         content.extend([f"<h4>{k}: {v}</h4>" for k,
                         v in request['qs_parsed'].items()])
+
     return ''.join(content)
 
 
 def generate_startline(request):
+    '''Generate response start line'''
+
     return f"{request['schema']} {request['status'].value} {request['status'].phrase}\n"
 
 
 def generate_response(request, client_addr):
+    '''Generate response'''
 
     parsed_request = parse_request(request)
 
@@ -237,6 +248,7 @@ def generate_response(request, client_addr):
 
 
 def event_loop():
+    '''Run event loop based on selectors functionality'''
 
     while True:
         for key, mask in selector.select():  # key: SelectorKey, events: selectors.EVENT_READ
