@@ -25,7 +25,8 @@ logger = None
 def init_logger(name):
     LOG_FORMAT = '{asctime} [{levelname}] [{name}] [{funcName}] > {message}'
     logging.basicConfig(level=logging.DEBUG, format=LOG_FORMAT, style='{', )
-    return logging.getLogger(name)
+    global logger
+    logger = logging.getLogger(name)
 
 
 def find_http_status(code):
@@ -46,7 +47,7 @@ def server(host, port):
     server_socket.setblocking(False)
     server_socket.bind((host, port))
     server_socket.listen()
-    logger.debug('Start listening at %s:%s', *server_socket.getsockname())
+    logger.debug('Started listening at %s:%s', *server_socket.getsockname())
 
     selector.register(fileobj=server_socket,
                       events=selectors.EVENT_READ, data=accept)
@@ -108,7 +109,7 @@ def parse_post(headers, body):
 
     if 'multipart/form-data' in headers['content-type']:
         boundary = headers['content-type'].split('; boundary=', 1)[1]
-        pattern = f"\-*{boundary}\-*"
+        pattern = f"-*{boundary}-*"
         form_data = [part.strip() for part in re.split(pattern, body)]
         params = {}
         for part in form_data:
@@ -245,7 +246,7 @@ def generate_response(request, client_addr):
 
 
 def event_loop():
-    '''Run event loop based on selectors functionality'''
+    '''Run event loop based on selectors module'''
 
     while True:
         for key, mask in selector.select():  # key: SelectorKey, events: selectors.EVENT_READ
@@ -256,8 +257,7 @@ def event_loop():
 
 def main():
 
-    global logger
-    logger = init_logger('ECHO')
+    init_logger('ECHO')
     server(HOST, PORT)
     event_loop()
 
