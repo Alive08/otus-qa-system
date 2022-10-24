@@ -44,7 +44,7 @@ Web-server access log parser
 скрипта на pandas. На предоставленном файле (> 3 млн. записей) вариант на pandas выигрывает около 5 с.
 
 
-homework #9
+homework #10
 
 HTTP Echo сервер
 
